@@ -1,0 +1,28 @@
+{
+  "name": "flowforge",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w packages/api\" \"npm run dev -w packages/worker\" \"npm run dev -w packages/web\"",
+    "build": "npm run build -w packages/shared && npm run build -w packages/api && npm run build -w packages/worker && npm run build -w packages/web",
+    "test": "npm run test -w packages/engine && npm run test -w packages/api",
+    "test:e2e": "npm run test:e2e -w packages/web",
+    "db:migrate": "npx prisma migrate dev --schema=packages/api/prisma/schema.prisma",
+    "db:push": "npx prisma db push --schema=packages/api/prisma/schema.prisma",
+    "db:seed": "npx tsx packages/api/prisma/seed.ts",
+    "db:studio": "npx prisma studio --schema=packages/api/prisma/schema.prisma",
+    "lint": "eslint packages/*/src --ext .ts,.tsx",
+    "format": "prettier --write \"packages/*/src/**/*.{ts,tsx,json}\""
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "concurrently": "^9.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.4.0",
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0"
+  }
+}

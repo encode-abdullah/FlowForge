@@ -1,0 +1,117 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workflows Workflow[]
+  apiKeys   ApiKey[]
+}
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  name      String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Workflow {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  active      Boolean  @default(false)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  nodes    Node[]
+  edges    Edge[]
+  versions WorkflowVersion[]
+  executions Execution[]
+}
+
+model Node {
+  id         String  @id @default(cuid())
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  type       String
+  config     Json    @default("{}")
+  positionX  Float   @default(0)
+  positionY  Float   @default(0)
+
+  sourceEdges     Edge[]           @relation("SourceNode")
+  targetEdges     Edge[]           @relation("TargetNode")
+  nodeExecutions  NodeExecution[]
+}
+
+model Edge {
+  id           String @id @default(cuid())
+  workflowId   String
+  workflow     Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  sourceNodeId String
+  sourceNode   Node   @relation("SourceNode", fields: [sourceNodeId], references: [id])
+  targetNodeId String
+  targetNode   Node   @relation("TargetNode", fields: [targetNodeId], references: [id])
+  sourceHandle String @default("output")
+  targetHandle String @default("input")
+}
+
+model WorkflowVersion {
+  id         String   @id @default(cuid())
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  version    Int
+  definition Json
+  createdAt  DateTime @default(now())
+
+  @@unique([workflowId, version])
+}
+
+model Execution {
+  id          String   @id @default(cuid())
+  workflowId  String
+  workflow    Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  version     Int      @default(1)
+  status      String   @default("pending")
+  triggerType String
+  input       Json?
+  output      Json?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  nodeExecutions NodeExecution[]
+}
+
+model NodeExecution {
+  id          String    @id @default(cuid())
+  executionId String
+  execution   Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  nodeId      String
+  node        Node      @relation(fields: [nodeId], references: [id])
+  status      String    @default("pending")
+  input       Json?
+  output      Json?
+  error       String?
+  attempt     Int       @default(1)
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@index([executionId])
+  @@index([nodeId])
+}
