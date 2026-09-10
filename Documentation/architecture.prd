@@ -1,0 +1,442 @@
+# FlowForge — Architecture Document
+
+## System Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    USER (Browser)                        │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │          React Flow Visual Editor                  │  │
+│  │   [Webhook] → [Validate] → [API Call] → [If]     │  │
+│  │                                    ↙       ↘      │  │
+│  │                              [Email]    [DB Save]  │  │
+│  └───────────────────────────────────────────────────┘  │
+└──────────────────────┬──────────────────────────────────┘
+                       │ REST API
+                       ▼
+┌─────────────────────────────────────────────────────────┐
+│                  API SERVER (Fastify)                    │
+│  • Workflow CRUD                                        │
+│  • Workflow versioning                                  │
+│  • Execution triggering                                 │
+│  • Webhook endpoints                                    │
+│  • Execution history queries                            │
+└──────────┬────────────────────────────┬─────────────────┘
+           │                            │
+           ▼                            ▼
+┌──────────────────┐    ┌─────────────────────────────────┐
+│   PostgreSQL     │    │          Redis (BullMQ)          │
+│                  │    │                                   │
+│ • workflows      │    │  Queue: workflow-execution        │
+│ • nodes          │    │  Queue: node-execution            │
+│ • edges          │    │  Queue: webhook-triggers          │
+│ • versions       │    │  Cache: session/state             │
+│ • executions     │    │  Locks: distributed locks         │
+│ • node_results   │    │                                   │
+│ • audit_log      │    │  Workers poll queues              │
+└──────────────────┘    └──────────────┬──────────────────┘
+                                       │
+                                       ▼
+                            ┌─────────────────────┐
+                            │   WORKER PROCESS     │
+                            │                      │
+                            │ • Deserialize workflow│
+                            │ • Build DAG          │
+                            │ • Execute nodes      │
+                            │ • Handle conditions  │
+                            │ • Manage retries     │
+                            │ • Store results      │
+                            │ • Support replay     │
+                            └─────────────────────┘
+```
+
+## Monorepo Structure
+
+```
+flowforge/
+├── packages/
+│   ├── shared/                  # Shared types, constants, utils
+│   │   ├── src/
+│   │   │   ├── types/
+│   │   │   │   ├── workflow.ts
+│   │   │   │   ├── execution.ts
+│   │   │   │   └── index.ts
+│   │   │   ├── constants/
+│   │   │   │   └── node-types.ts
+│   │   │   └── utils/
+│   │   │       └── id.ts
+│   │   └── package.json
+│   │
+│   ├── api/                     # Fastify REST server
+│   │   ├── prisma/
+│   │   │   ├── schema.prisma
+│   │   │   ├── migrations/
+│   │   │   └── seed.ts
+│   │   ├── src/
+│   │   │   ├── server.ts
+│   │   │   ├── plugins/
+│   │   │   │   └── auth.ts
+│   │   │   ├── routes/
+│   │   │   │   ├── auth.ts
+│   │   │   │   ├── workflows.ts
+│   │   │   │   ├── executions.ts
+│   │   │   │   └── webhooks.ts
+│   │   │   ├── schemas/
+│   │   │   │   ├── workflow.ts
+│   │   │   │   └── auth.ts
+│   │   │   ├── services/
+│   │   │   │   ├── workflow.service.ts
+│   │   │   │   └── execution.service.ts
+│   │   │   ├── lib/
+│   │   │   │   └── prisma.ts
+│   │   │   └── __tests__/
+│   │   │       ├── workflows.test.ts
+│   │   │       └── executions.test.ts
+│   │   └── package.json
+│   │
+│   ├── engine/                  # Workflow execution logic
+│   │   ├── src/
+│   │   │   ├── executor/
+│   │   │   │   ├── dag-builder.ts
+│   │   │   │   ├── node-executor.ts
+│   │   │   │   ├── workflow-executor.ts
+│   │   │   │   └── replay.ts
+│   │   │   ├── nodes/
+│   │   │   │   ├── webhook.node.ts
+│   │   │   │   ├── http-request.node.ts
+│   │   │   │   ├── condition.node.ts
+│   │   │   │   ├── transform.node.ts
+│   │   │   │   ├── delay.node.ts
+│   │   │   │   ├── email.node.ts
+│   │   │   │   ├── database.node.ts
+│   │   │   │   └── index.ts
+│   │   │   ├── retry/
+│   │   │   │   └── retry-handler.ts
+│   │   │   └── __tests__/
+│   │   │       ├── dag-builder.test.ts
+│   │   │       ├── workflow-executor.test.ts
+│   │   │       └── retry-handler.test.ts
+│   │   └── package.json
+│   │
+│   ├── worker/                  # BullMQ worker process
+│   │   ├── src/
+│   │   │   ├── worker.ts
+│   │   │   └── processors/
+│   │   │       ├── workflow.processor.ts
+│   │   │       └── node.processor.ts
+│   │   └── package.json
+│   │
+│   └── web/                     # React frontend
+│       ├── src/
+│       │   ├── app/
+│       │   │   ├── App.tsx
+│       │   │   ├── router.tsx
+│       │   │   └── providers.tsx
+│       │   ├── features/
+│       │   │   ├── auth/
+│       │   │   │   ├── LoginPage.tsx
+│       │   │   │   ├── RegisterPage.tsx
+│       │   │   │   └── useAuth.ts
+│       │   │   ├── workflows/
+│       │   │   │   ├── WorkflowListPage.tsx
+│       │   │   │   ├── WorkflowEditorPage.tsx
+│       │   │   │   ├── components/
+│       │   │   │   │   ├── Canvas.tsx
+│       │   │   │   │   ├── Sidebar.tsx
+│       │   │   │   │   ├── NodeConfigPanel.tsx
+│       │   │   │   │   ├── ExecutionTimeline.tsx
+│       │   │   │   │   └── nodes/
+│       │   │   │   │       ├── WebhookNode.tsx
+│       │   │   │   │       ├── HttpRequestNode.tsx
+│       │   │   │   │       ├── ConditionNode.tsx
+│       │   │   │   │       ├── TransformNode.tsx
+│       │   │   │   │       ├── EmailNode.tsx
+│       │   │   │   │       └── index.ts
+│       │   │   │   └── hooks/
+│       │   │   │       ├── useWorkflow.ts
+│       │   │   │       └── useExecute.ts
+│       │   │   └── executions/
+│       │   │       ├── ExecutionListPage.tsx
+│       │   │       └── ExecutionDetailPage.tsx
+│       │   ├── lib/
+│       │   │   ├── api.ts
+│       │   │   └── auth.ts
+│       │   ├── stores/
+│       │   │   └── editorStore.ts
+│       │   └── styles/
+│       │       └── globals.css
+│       ├── e2e/
+│       │   ├── workflow-editor.spec.ts
+│       │   │   ├── execution.spec.ts
+│       │   │   └── auth.spec.ts
+│       ├── playwright.config.ts
+│       ├── vite.config.ts
+│       ├── tailwind.config.js
+│       ├── postcss.config.js
+│       └── package.json
+│
+├── docker/
+│   ├── Dockerfile.api
+│   ├── Dockerfile.worker
+│   ├── Dockerfile.web
+│   └── nginx.conf
+├── docker-compose.yml
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── package.json                 # Root workspace config
+├── tsconfig.base.json
+├── .env.example
+├── .gitignore
+├── .prettierrc
+└── README.md
+```
+
+---
+
+## Key Technical Decisions & Trade-offs
+
+### 1. Workflow Representation — Adjacency List in PostgreSQL
+
+- Workflows are stored as **nodes + edges** (not nested JSON)
+- Enables querying, versioning, and diffing individual nodes
+- **Trade-off**: More complex queries vs. simpler JSON blob storage
+
+### 2. Execution Model — BullMQ Job Chain
+
+- Each workflow execution creates a **root job** in BullMQ
+- Each node execution is a **child job** with dependencies
+- Nodes with no pending dependencies are auto-promoted
+- **Trade-off**: More queue overhead vs. in-process execution (needed for scaling)
+
+### 3. Conditional Branching — Runtime DAG Pruning
+
+- Conditions are evaluated at runtime
+- Skipped branches produce "skipped" results (not null)
+- Enables the **replay** feature (know exactly which nodes ran)
+
+### 4. Replay — Checkpoint-based Resume
+
+- Each node stores its result + status in PostgreSQL
+- On replay, the engine reads existing results
+- Skips successful nodes, re-executes from the failed/specified node
+- **Trade-off**: Storage overhead vs. instant replay capability
+
+### 5. Webhook Triggers — HTTP Ingress
+
+- Each workflow can register webhook endpoints
+- Webhook → creates execution with input data
+- Enables integration with external systems
+
+---
+
+## Database Schema
+
+```sql
+-- Workflow definition
+workflows (id, name, description, active, created_at, updated_at)
+
+-- Version snapshots
+workflow_versions (id, workflow_id, version, definition JSONB, created_at)
+
+-- Individual nodes within a workflow
+nodes (id, workflow_id, type, config JSONB, position_x, position_y)
+
+-- Connections between nodes
+edges (id, workflow_id, source_node_id, target_node_id, source_handle, target_handle)
+
+-- Execution instances
+executions (id, workflow_id, version, status, trigger_type, input JSONB, started_at, completed_at)
+
+-- Per-node execution results
+node_executions (id, execution_id, node_id, status, input JSONB, output JSONB, error TEXT, started_at, completed_at, attempt)
+
+-- Audit trail
+audit_log (id, entity_type, entity_id, action, changes JSONB, created_at)
+```
+
+---
+
+## Node Types
+
+| Node Type | Purpose | Complexity |
+|-----------|---------|------------|
+| **Webhook** | Trigger from HTTP request | Low |
+| **HTTP Request** | Call external API | Medium |
+| **Condition** | If/else branching | Medium |
+| **Transform** | Data mapping/manipulation | Low |
+| **Delay** | Wait N seconds | Low |
+| **Set Variable** | Store intermediate values | Low |
+| **Email** (mock) | Send notification | Low |
+| **Database** (mock) | Save/query data | Medium |
+| **Code** | Run custom JS snippet | High |
+| **Loop** | Iterate over array | High |
+
+---
+
+## API Routes
+
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/auth/register` | POST | Create account |
+| `/api/auth/login` | POST | Get JWT |
+| `/api/workflows` | GET | List user's workflows |
+| `/api/workflows` | POST | Create workflow |
+| `/api/workflows/:id` | GET | Get workflow with nodes/edges |
+| `/api/workflows/:id` | PUT | Update workflow |
+| `/api/workflows/:id` | DELETE | Delete workflow |
+| `/api/workflows/:id/activate` | POST | Set active + create version |
+| `/api/workflows/:id/versions` | GET | List versions |
+| `/api/workflows/:id/execute` | POST | Trigger manual execution |
+| `/api/executions` | GET | List executions |
+| `/api/executions/:id` | GET | Get execution with node results |
+| `/api/executions/:id/replay` | POST | Replay from specific node |
+| `/api/webhooks/:workflowId` | POST | Trigger via webhook |
+
+---
+
+## Complete File Structure
+
+```
+flowforge/
+├── packages/
+│   ├── shared/
+│   │   ├── src/
+│   │   │   ├── types/
+│   │   │   │   ├── workflow.ts
+│   │   │   │   ├── execution.ts
+│   │   │   │   └── index.ts
+│   │   │   ├── constants/
+│   │   │   │   └── node-types.ts
+│   │   │   └── utils/
+│   │   │       └── id.ts
+│   │   ├── package.json
+│   │   └── tsconfig.json
+│   │
+│   ├── api/
+│   │   ├── prisma/
+│   │   │   ├── schema.prisma
+│   │   │   ├── migrations/
+│   │   │   └── seed.ts
+│   │   ├── src/
+│   │   │   ├── server.ts
+│   │   │   ├── plugins/
+│   │   │   │   └── auth.ts
+│   │   │   ├── routes/
+│   │   │   │   ├── auth.ts
+│   │   │   │   ├── workflows.ts
+│   │   │   │   ├── executions.ts
+│   │   │   │   └── webhooks.ts
+│   │   │   ├── schemas/
+│   │   │   │   ├── workflow.ts
+│   │   │   │   └── auth.ts
+│   │   │   ├── services/
+│   │   │   │   ├── workflow.service.ts
+│   │   │   │   └── execution.service.ts
+│   │   │   ├── lib/
+│   │   │   │   └── prisma.ts
+│   │   │   └── __tests__/
+│   │   │       ├── workflows.test.ts
+│   │   │       └── executions.test.ts
+│   │   ├── package.json
+│   │   └── tsconfig.json
+│   │
+│   ├── engine/
+│   │   ├── src/
+│   │   │   ├── executor/
+│   │   │   │   ├── dag-builder.ts
+│   │   │   │   ├── node-executor.ts
+│   │   │   │   ├── workflow-executor.ts
+│   │   │   │   └── replay.ts
+│   │   │   ├── nodes/
+│   │   │   │   ├── webhook.node.ts
+│   │   │   │   ├── http-request.node.ts
+│   │   │   │   ├── condition.node.ts
+│   │   │   │   ├── transform.node.ts
+│   │   │   │   ├── delay.node.ts
+│   │   │   │   ├── email.node.ts
+│   │   │   │   ├── database.node.ts
+│   │   │   │   └── index.ts
+│   │   │   ├── retry/
+│   │   │   │   └── retry-handler.ts
+│   │   │   └── __tests__/
+│   │   │       ├── dag-builder.test.ts
+│   │   │       ├── workflow-executor.test.ts
+│   │   │       └── retry-handler.test.ts
+│   │   ├── package.json
+│   │   └── tsconfig.json
+│   │
+│   ├── worker/
+│   │   ├── src/
+│   │   │   ├── worker.ts
+│   │   │   └── processors/
+│   │   │       ├── workflow.processor.ts
+│   │   │       └── node.processor.ts
+│   │   ├── package.json
+│   │   └── tsconfig.json
+│   │
+│   └── web/
+│       ├── src/
+│       │   ├── app/
+│       │   │   ├── App.tsx
+│       │   │   ├── router.tsx
+│       │   │   └── providers.tsx
+│       │   ├── features/
+│       │   │   ├── auth/
+│       │   │   │   ├── LoginPage.tsx
+│       │   │   │   ├── RegisterPage.tsx
+│       │   │   │   └── useAuth.ts
+│       │   │   ├── workflows/
+│       │   │   │   ├── WorkflowListPage.tsx
+│       │   │   │   ├── WorkflowEditorPage.tsx
+│       │   │   │   ├── components/
+│       │   │   │   │   ├── Canvas.tsx
+│       │   │   │   │   ├── Sidebar.tsx
+│       │   │   │   │   ├── NodeConfigPanel.tsx
+│       │   │   │   │   ├── ExecutionTimeline.tsx
+│       │   │   │   │   └── nodes/
+│       │   │   │   │       ├── WebhookNode.tsx
+│       │   │   │   │       ├── HttpRequestNode.tsx
+│       │   │   │   │       ├── ConditionNode.tsx
+│       │   │   │   │       ├── TransformNode.tsx
+│       │   │   │   │       ├── EmailNode.tsx
+│       │   │   │   │       └── index.ts
+│       │   │   │   └── hooks/
+│       │   │   │       ├── useWorkflow.ts
+│       │   │   │       └── useExecute.ts
+│       │   │   └── executions/
+│       │   │       ├── ExecutionListPage.tsx
+│       │   │       └── ExecutionDetailPage.tsx
+│       │   ├── lib/
+│       │   │   ├── api.ts
+│       │   │   └── auth.ts
+│       │   ├── stores/
+│       │   │   └── editorStore.ts
+│       │   └── styles/
+│       │       └── globals.css
+│       ├── e2e/
+│       │   ├── workflow-editor.spec.ts
+│       │   ├── execution.spec.ts
+│       │   └── auth.spec.ts
+│       ├── playwright.config.ts
+│       ├── vite.config.ts
+│       ├── tailwind.config.js
+│       ├── postcss.config.js
+│       └── package.json
+│
+├── docker/
+│   ├── Dockerfile.api
+│   ├── Dockerfile.worker
+│   ├── Dockerfile.web
+│   └── nginx.conf
+├── docker-compose.yml
+├── .github/
+│   └── workflows/
+│       └── ci.yml
+├── package.json
+├── tsconfig.base.json
+├── .env.example
+├── .gitignore
+├── .prettierrc
+└── README.md
+```

@@ -1,0 +1,85 @@
+# FlowForge — Full Memory & Implementation Plan
+
+## Project Overview
+
+**FlowForge** is a **Visual Distributed Workflow Engine** where users construct workflows by connecting nodes in a visual graph editor, and the backend actually **executes** those workflows as distributed jobs.
+
+## Decisions Locked In
+
+| Decision | Choice |
+|----------|--------|
+| Approach | Full MVP (all core features) |
+| ORM | Prisma |
+| Frontend State | React Query + Zustand |
+| Auth | JWT-based from start |
+| Testing | Unit + Integration + Playwright E2E |
+| Monorepo | npm workspaces |
+
+## Tech Stack Summary
+
+| Layer | Technology | Why |
+|-------|-----------|-----|
+| Frontend | React + TypeScript + React Flow | Industry standard, React Flow is purpose-built |
+| State | React Query + Zustand | React Query for server state, Zustand for UI state |
+| Backend | Fastify + TypeScript | 2x faster than Express, schema validation |
+| Database | PostgreSQL + Prisma | Relational for graph data, Prisma for type safety |
+| Queue | Redis + BullMQ | Battle-tested job queue, retries, priorities |
+| Container | Docker + docker-compose | Reproducible dev/prod environments |
+| CI/CD | GitHub Actions | Free for public repos, industry standard |
+| Testing | Vitest + Supertest + Playwright | Fast TS-native unit/integration, browser E2E |
+
+## Core Requirements
+
+- Visual workflow editor
+- Node-based architecture
+- Workflow persistence
+- Workflow versioning
+- Execution engine
+- Conditional branching
+- Retries
+- Timeouts
+- Job queues
+- Execution history
+- Failure handling
+- Execution logs
+- Webhook triggers
+- REST API nodes
+
+## Standout Feature: Workflow Replay
+
+A failed workflow:
+```
+Step 1 ✓
+Step 2 ✓
+Step 3 ✗
+Step 4 skipped
+```
+User can choose:
+```
+Replay from Step 3
+```
+Instead of restarting everything.
+
+## Interview Discussion Points
+
+1. **DAG Scheduling** — How do you determine execution order? Topological sort. What about cycles?
+2. **Distributed Execution** — How do multiple workers coordinate? BullMQ locking.
+3. **Replay Semantics** — Do you re-execute or cache? What about side effects?
+4. **Versioning** — Snapshot vs diff-based versioning? When does versioning matter?
+5. **Failure Modes** — Worker crashes mid-execution? Poison pills? Dead letter queues?
+6. **Scalability** — How would you shard workflows across multiple Redis instances?
+7. **Consistency** — What if a node succeeds but the result write fails? Idempotency keys.
+
+## What Recruiters See
+
+This looks far more like **real backend engineering** than another CRUD application. It covers:
+
+| Domain | How FlowForge Covers It |
+|--------|------------------------|
+| **Backend Engineering** | Execution engine, API design, job processing |
+| **Distributed Systems** | Worker queues, retries, concurrency |
+| **Data Modeling** | Workflow graphs, versioning, execution history |
+| **Frontend** | Visual editor with React Flow, real-time status |
+| **DevOps** | Docker, worker scaling, health checks |
+| **Algorithms** | DAG traversal, conditional branching, cycle detection |
+| **System Design** | Trade-offs between persistence vs performance |
