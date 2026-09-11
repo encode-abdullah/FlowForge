@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import fp from 'fastify-plugin';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -9,7 +10,7 @@ declare module 'fastify' {
   }
 }
 
-export async function authPlugin(app: FastifyInstance) {
+export const authPlugin = fp(async (app: FastifyInstance) => {
   app.decorate('authenticate', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -17,4 +18,4 @@ export async function authPlugin(app: FastifyInstance) {
       reply.status(401).send({ error: 'Unauthorized' });
     }
   });
-}
+}, { name: 'auth-plugin' });

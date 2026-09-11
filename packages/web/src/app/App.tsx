@@ -7,6 +7,7 @@ import { WorkflowListPage } from '../features/workflows/WorkflowListPage';
 import { WorkflowEditorPage } from '../features/workflows/WorkflowEditorPage';
 import { ExecutionListPage } from '../features/executions/ExecutionListPage';
 import { ExecutionDetailPage } from '../features/executions/ExecutionDetailPage';
+import LandingPage from '../features/landing/LandingPage';
 
 const queryClient = new QueryClient();
 
@@ -21,6 +22,7 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
+          <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route
